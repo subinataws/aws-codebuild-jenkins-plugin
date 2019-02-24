@@ -14,41 +14,54 @@
  *  Please see LICENSE.txt for applicable license terms and NOTICE.txt for applicable notices.
  */
 
-import com.amazonaws.services.codebuild.model.BatchGetBuildsResult;
+import com.amazonaws.AmazonClientException;
 import com.amazonaws.services.codebuild.model.BatchGetBuildsRequest;
 import com.amazonaws.services.codebuild.model.BatchGetBuildsResult;
 import com.amazonaws.services.codebuild.model.Build;
 import com.amazonaws.services.codebuild.model.StatusType;
+import com.amazonaws.services.codebuild.model.BuildPhaseType;
+
+import hudson.model.Result;
+import hudson.util.Secret;
+import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.junit.runner.RunWith;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.util.Date;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 import static org.mockito.Matchers.any;
-
-import static org.junit.Assert.assertFalse;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@PowerMockIgnore("javax.management.*")
+@RunWith(PowerMockRunner.class)
+@PrepareForTest({CodeBuilder.class, Secret.class})
 public class CodeBuilderEndToEndPerformTest extends CodeBuilderTest {
 
-    String in = StatusType.IN_PROGRESS.toString();
-    String s = StatusType.SUCCEEDED.toString();
-    String f = StatusType.FAILED.toString();
+    @Before
+    public void SetUp() throws Exception {
+        setUpBuildEnvironment();
+    }
 
     @Test
     public void testBuildSuccess() throws Exception {
-        setUpBuildEnvironment();
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
         CodeBuilder test = createDefaultCodeBuilder();
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        test.setAction(mockAction);
-        test.setLogMonitor(mockMonitor);
-        boolean result = test.perform(build, launcher, listener);
-        assertTrue(result);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.SUCCESS);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.SUCCESS, result.getStatus());
     }
 
     @Test
     public void testBuildThenWaitThenSuccess() throws Exception {
-        setUpBuildEnvironment();
         Build inProgress = new Build().withBuildStatus(StatusType.IN_PROGRESS).withStartTime(new Date(1));
         Build succeeded = new Build().withBuildStatus(StatusType.SUCCEEDED.toString().toUpperCase()).withStartTime(new Date(2));
         when(mockClient.batchGetBuilds(any(BatchGetBuildsRequest.class))).thenReturn(
@@ -56,26 +69,32 @@ public class CodeBuilderEndToEndPerformTest extends CodeBuilderTest {
                 new BatchGetBuildsResult().withBuilds(inProgress),
                 new BatchGetBuildsResult().withBuilds(succeeded));
         CodeBuilder test = createDefaultCodeBuilder();
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        test.setAction(mockAction);
-        test.setLogMonitor(mockMonitor);
-        boolean result = test.perform(build, launcher, listener);
-        assertTrue(result);
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.SUCCESS);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.SUCCESS, result.getStatus());
     }
 
     @Test
     public void testBuildFails() throws Exception {
-        setUpBuildEnvironment();
-        when(mockBuild.getBuildStatus()).thenReturn(f);
         CodeBuilder test = createDefaultCodeBuilder();
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        boolean result = test.perform(build, launcher, listener);
-        assertFalse(result);
+        when(mockBuild.getBuildStatus()).thenReturn(StatusType.FAILED.toString().toUpperCase());
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
     }
 
     @Test
     public void testBuildThenWaitThenFails() throws Exception {
-        setUpBuildEnvironment();
         Build inProgress = new Build().withBuildStatus(StatusType.IN_PROGRESS).withStartTime(new Date(1));
         Build failed = new Build().withBuildStatus(StatusType.FAILED).withStartTime(new Date(2));
         when(mockClient.batchGetBuilds(any(BatchGetBuildsRequest.class))).thenReturn(
@@ -83,8 +102,87 @@ public class CodeBuilderEndToEndPerformTest extends CodeBuilderTest {
                 new BatchGetBuildsResult().withBuilds(inProgress),
                 new BatchGetBuildsResult().withBuilds(failed));
         CodeBuilder test = createDefaultCodeBuilder();
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        boolean result = test.perform(build, launcher, listener);
-        assertFalse(result);
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+    }
+
+    @Test
+    public void testBatchGetBuildsHttpTimeout() throws Exception {
+        Build inProgress = new Build().withBuildStatus(StatusType.IN_PROGRESS).withStartTime(new Date(1));
+        Build succeeded = new Build().withBuildStatus(StatusType.SUCCEEDED.toString().toUpperCase()).withStartTime(new Date(2));
+
+        AmazonClientException ex = new AmazonClientException("Unable to execute HTTP request: connect timed out");
+        when(mockClient.batchGetBuilds(any(BatchGetBuildsRequest.class)))
+                .thenReturn(new BatchGetBuildsResult().withBuilds(inProgress))
+                .thenThrow(ex)
+                .thenReturn(new BatchGetBuildsResult().withBuilds(succeeded));
+
+        CodeBuilder test = createDefaultCodeBuilder();
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.SUCCESS);
+    }
+
+    @Test
+    public void testBatchGetBuildsMultipleHttpTimeout() throws Exception {
+        Build inProgress = new Build().withBuildStatus(StatusType.IN_PROGRESS).withStartTime(new Date(1));
+        Build succeeded = new Build().withBuildStatus(StatusType.SUCCEEDED.toString().toUpperCase()).withStartTime(new Date(2));
+
+        AmazonClientException ex = new AmazonClientException("Unable to execute HTTP request: connect timed out");
+        when(mockClient.batchGetBuilds(any(BatchGetBuildsRequest.class)))
+                .thenThrow(ex)
+                .thenThrow(ex)
+                .thenReturn(new BatchGetBuildsResult().withBuilds(inProgress))
+                .thenReturn(new BatchGetBuildsResult().withBuilds(succeeded));
+
+        CodeBuilder test = createDefaultCodeBuilder();
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.SUCCESS);
+    }
+
+    @Test
+    public void testInterruptedBuild() throws Exception {
+        Build inProgress = new Build().withBuildStatus(StatusType.IN_PROGRESS).withCurrentPhase(BuildPhaseType.BUILD.toString()).withStartTime(new Date(1));
+        Build stopped = new Build().withBuildStatus(StatusType.STOPPED).withCurrentPhase(BuildPhaseType.COMPLETED.toString()).withStartTime(new Date(2));
+        when(mockClient.batchGetBuilds(any(BatchGetBuildsRequest.class)))
+                .thenReturn(new BatchGetBuildsResult().withBuilds(inProgress))
+                .then(mockInterruptedException)
+                .thenReturn(new BatchGetBuildsResult().withBuilds(inProgress))
+                .thenReturn(new BatchGetBuildsResult().withBuilds(stopped));
+
+        CodeBuilder test = createDefaultCodeBuilder();
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.ABORTED);
+    }
+
+    @Test
+    public void testInterruptedCompletedBuild() throws Exception {
+        Build inProgress = new Build().withBuildStatus(StatusType.IN_PROGRESS).withCurrentPhase(BuildPhaseType.BUILD.toString()).withStartTime(new Date(1));
+        Build completed = new Build().withBuildStatus(StatusType.SUCCEEDED).withCurrentPhase(BuildPhaseType.COMPLETED.toString()).withStartTime(new Date(2));
+        when(mockClient.batchGetBuilds(any(BatchGetBuildsRequest.class)))
+                .thenReturn(new BatchGetBuildsResult().withBuilds(inProgress))
+                .then(mockInterruptedException)
+                .thenReturn(new BatchGetBuildsResult().withBuilds(completed));
+
+        CodeBuilder test = createDefaultCodeBuilder();
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.ABORTED);
     }
 }

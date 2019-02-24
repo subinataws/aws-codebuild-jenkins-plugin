@@ -17,10 +17,13 @@
 import com.amazonaws.services.codebuild.model.LogsLocation;
 import com.amazonaws.services.logs.AWSLogsClient;
 import com.amazonaws.services.logs.model.GetLogEventsRequest;
+import com.amazonaws.services.logs.model.GetLogEventsResult;
 import com.amazonaws.services.logs.model.OutputLogEvent;
+import hudson.model.TaskListener;
 import lombok.Getter;
 import lombok.Setter;
 
+import javax.xml.bind.Marshaller;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -28,34 +31,45 @@ import java.util.List;
 public class CloudWatchMonitor {
 
     @Setter private AWSLogsClient logsClient;
-    @Setter@Getter  private LogsLocation logsLocation;
+    @Setter @Getter private LogsLocation logsLocation;
     @Getter private List<String> latestLogs;
+    @Getter private Long lastPollTime;
+    private boolean cwlStreamingDisabled;
 
-    private static final int LOG_LIMIT = 15;
-    private static final int htmlMaxLineLength = 200;
-    public static final String noLogsMessage = "Fetching CloudWatch logs for this build.";
+    private static final int htmlMaxLineLength = 2000;
+    public static final String noLogsMessage = "No CloudWatch logs found for this build.";
+    public static final String streamingDisabledMessage = "CloudWatch logs streaming is disabled for this build.";
     public static final String failedConfigurationLogsMessage = "CloudWatch configuration for this build is incorrect.";
 
-    public CloudWatchMonitor(AWSLogsClient client) {
+    public CloudWatchMonitor(AWSLogsClient client, boolean cwlStreamingDisabled) {
         this.logsClient = client;
+        this.cwlStreamingDisabled = cwlStreamingDisabled;
         if(!Validation.checkCloudWatchMonitorConfig(logsClient)) {
             latestLogs = Arrays.asList(failedConfigurationLogsMessage);
             return;
         }
+        if(cwlStreamingDisabled) {
+            latestLogs = Arrays.asList(streamingDisabledMessage);
+        }
+        lastPollTime = 0L;
     }
 
-    // Checks if the CloudWatch logs exist. If they do, retrieves/stores them in this.containersAndLogs.
-    // If the logs don't exist yet, sets this.logs to an error message.
-    public void pollForLogs() {
-        if(this.logsLocation != null) {
+    // Checks if the CloudWatch logs exist. If they do, retrieves/stores them in this.latestLogs.
+    // If the logs don't exist yet, sets this.latestLogs to an error message.
+    // Does nothing if CloudWatch logs streaming is disabled
+    public void pollForLogs(TaskListener listener) {
+        if(cwlStreamingDisabled) {
+            return;
+        } else if(this.logsLocation != null && this.logsLocation.getGroupName() != null && this.logsLocation.getStreamName() != null) {
+            this.latestLogs = new ArrayList();
             GetLogEventsRequest logRequest = new GetLogEventsRequest()
-                .withStartFromHead(false)
-                .withLimit(LOG_LIMIT)
+                .withStartTime(lastPollTime)
+                .withStartFromHead(true)
                 .withLogGroupName(logsLocation.getGroupName())
                 .withLogStreamName(logsLocation.getStreamName());
-
             try {
-                formatLogs(logsClient.getLogEvents(logRequest).getEvents());
+                GetLogEventsResult logsResult = logsClient.getLogEvents(logRequest);
+                getAndFormatLogs(logsResult.getEvents(), listener);
             } catch (Exception e) {
                 latestLogs = Arrays.asList(e.getMessage());
                 return;
@@ -64,24 +78,23 @@ public class CloudWatchMonitor {
             latestLogs = Arrays.asList(noLogsMessage);
             return;
         }
-
     }
 
-    private void formatLogs(List<OutputLogEvent> logs) {
+    private void getAndFormatLogs(List<OutputLogEvent> logs, TaskListener listener) {
         if(logs.size() != 0) {
-            String entry = logs.get(0).getMessage();
-            if(entry.contains("[") && entry.contains("]")) {
-                this.latestLogs = new ArrayList<String>();
-                for (int i = 0; i < logs.size(); i++) {
-                    entry = logs.get(i).getMessage();
-                    //trim the [Container] string from the log message.
+            for (int i = 0; i < logs.size(); i++) {
+                String entry = logs.get(i).getMessage();
+                //trim the [Container] string from the log message.
+                if(entry.startsWith("[Container]")) {
                     entry = entry.substring(entry.indexOf("]") + 2);
-                    if (entry.length() > htmlMaxLineLength) {
-                        entry = entry.substring(0, htmlMaxLineLength - "...".length()) + "...";
-                    }
-                    latestLogs.add(entry);
                 }
+                if (entry.length() > htmlMaxLineLength) {
+                    entry = Utils.formatStringWithEllipsis(entry, htmlMaxLineLength);
+                }
+                LoggingHelper.log(listener, entry.replace("\n", ""));
+                latestLogs.add(entry);
             }
+            this.lastPollTime = logs.get(logs.size()-1).getTimestamp() + 1;
         }
     }
 

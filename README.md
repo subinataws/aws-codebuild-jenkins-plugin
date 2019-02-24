@@ -1,21 +1,14 @@
 # AWS CodeBuild Jenkins Plugin
+The AWS CodeBuild plugin for Jenkins provides a build step for your Jenkins project.
+
+![Build Status](https://codebuild.us-west-2.amazonaws.com/badges?uuid=eyJlbmNyeXB0ZWREYXRhIjoiK0hKUGVGdFlLS0ZmWTY3TnpIaitFcHZydlg1THlsK1dYNGN4dEtxSHZPQzBna0EwWkwzY3JQMUdGaGF3THVkd3NSYmFKT2NmOFRaNmFTak9Ma1VZd0xzPSIsIml2UGFyYW1ldGVyU3BlYyI6IlVvZ0Fpc3NvdGxLY002UjIiLCJtYXRlcmlhbFNldFNlcmlhbCI6MX0%3D&branch=master) [![license](http://img.shields.io/badge/license-Apache2.0-brightgreen.svg?style=flat)](https://github.com/jenkinsci/aws-codebuild-plugin/blob/master/LICENSE)
+[![Build Status](https://ci.jenkins.io/buildStatus/icon?job=Plugins/aws-codebuild-plugin/master)](https://ci.jenkins.io/job/Plugins/job/aws-codebuild-plugin/job/master/)
+
 ## Setup Jenkins
-If you already have a Jenkins server on which you want to use the plugin, you can skip to the Plugin Installation section. If not, you can either:
+We have written a blog post for setting up Jenkins with AWS CodeBuild plugin pre-installed. Learn more: https://aws.amazon.com/blogs/devops/simplify-your-jenkins-builds-with-aws-codebuild/.
 
-1. Download Jenkins at [jenkins.io](https://jenkins.io) and run it directly with `java -jar jenkins.war`.
-2. Create a Jenkins server on Amazon EC2 with [AWS Marketplace](https://aws.amazon.com/marketplace/search/results?searchTerms=jenkins&x=0&y=0&page=1&ref_=nav_search_box). 
-
-## Plugin Installation
-
-Build AWS CodeBuild Jenkins plugin locally by running:
-
-```
-mvn install
-```
-
-This command will generate a aws-codebuild.hpi file which will be installed on your Jenkins server.
-
-* In Jenkins, choose **Manage Jenkins** > **Manage Plugins** > **Advanced** > **Upload Plugin** > **Browse** (select the *aws-codebuild.hpi* file) > **Upload** to install the AWS CodeBuild plugin.
+## Plugin Installation (optional)
+If you already have a Jenkins setup and would like to only install the AWS CodeBuild plugin, then the recommended approach would be to search for "AWS CodeBuild Plugin for Jenkins" in the Plugin Manager on your Jenkins instance.
 
 ## Plugin Usage
 
@@ -23,7 +16,9 @@ This command will generate a aws-codebuild.hpi file which will be installed on y
 
 1. [Create Project](http://docs.aws.amazon.com/console/codebuild/create-project) on the AWS CodeBuild console.
 	* Switch to the region you would prefer to run the build in.
+	* You can optionally set the Amazon VPC configuration to allow CodeBuild build container to access resources within your VPC.
 	* Make sure to write down the project's name.
+	* (Optional) If your source repository is not natively supported by CodeBuild, you can set the input source type for your project as S3 for the CodeBuild project.
 2. Create AWS IAM user to be used by the Jenkins plugin.
 	* [Create a policy](https://console.aws.amazon.com/iam/home?region=us-east-1#/policies$new) similar to the one following this section.
 	* Go to the [IAM console](https://console.aws.amazon.com/iam/home?region=us-east-1#/users$new?step=details), and create a new user.
@@ -36,62 +31,14 @@ This command will generate a aws-codebuild.hpi file which will be installed on y
 		* Select **Use Project source**.
 		* Save the configuration and run a build from Jenkins.
 
-		
-Policy sample for IAM user:
-
-```
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Resource": ["arn:aws:logs:{{region}}:{{awsAccountId}}:log-group:/aws/codebuild/{{projectName}}:*"],
-            "Action": ["logs:GetLogEvents"]
-        },
-        {
-            "Effect": "Allow",
-            "Resource": ["arn:aws:s3:::{{outputBucket}}/*"],
-            "Action": ["s3:GetObject"]
-        },
-        {
-            "Effect": "Allow",
-            "Resource": ["arn:aws:codebuild:{{region}}:{{awsAccountId}}:project/{{projectName}}"],
-            "Action": ["codebuild:StartBuild",
-                       "codebuild:BatchGetBuilds",
-                       "codebuild:BatchGetProjects"]
-        }
-	]
-}
-``` 
-
-### Using AWS CodeBulid with source only available inside of your VPC
-
-To use AWS CodeBuild inside of a VPC the Jenkins plugin is going to pull the source from your repository inside of your VPC, zip it up and place the source into the Amazon S3 input bucket for the project you specified. To do this we need to make some modifications to the setup above.
-
-
-1. [Create an Amazon S3 bucket](http://docs.aws.amazon.com/AmazonS3/latest/gsg/CreatingABucket.html).
-	* Bucket must be [versioned](http://docs.aws.amazon.com/AmazonS3/latest/dev/Versioning.html).
-
-1. [Create Project](http://docs.aws.amazon.com/console/codebuild/create-project) on the AWS CodeBuild console.
-	* Use Amazon S3 as the source type.
-		*  Use the bucket you created previously.
-		*  Specifiy an Amazon S3 object key.
-	* Make sure to write down the project's name.
-2. Create AWS IAM user to be used by the Jenkins plugin.
-	* [Create a policy](https://console.aws.amazon.com/iam/home?region=us-east-1#/policies$new) similar to the one following this section.
-	* Go to the [AWS IAM console](https://console.aws.amazon.com/iam/home?region=us-east-1#/users$new?step=details), and create a new user.
-		* Access type should be: Programmatic Access.
-		* Attach policy to user that you created previously.
-3. Create a freestyle project in Jenkins.
-  * For the **Source Code Management** make sure to select how you would like to retrieve your source. You may need to install the [GitHub Plugin](https://wiki.jenkins-ci.org/display/JENKINS/GitHub+Plugin) to your Jenkins server.
-  * On the Configure page, choose **Add build step** > **Run build on AWS CodeBuild**. 
-  * Configure the build step.
-     * Enter **Region**, **Credentials** from the user created previously, and **Project name**.
-     * Select **Use Jenkins source**.
-     * Save the configuration and run a build from Jenkins.
+4. For the Source Code Management make sure to select how you would like to retrieve your source. You may need to install the GitHub Plugin (or the relevant source repository provider's Jenkins plugin) to your Jenkins server.
+	* On the Configure page, choose Add build step > Run build on AWS CodeBuild.
+Configure the build step.
+	* Enter Region, Credentials from the user created previously, and Project name.
+	* Select Use Jenkins source.
+	* Save the configuration and run a build from Jenkins.
 
 Policy sample for IAM user:
-
 ```
 {
     "Version": "2012-10-17",
@@ -126,4 +73,23 @@ Policy sample for IAM user:
 	]
 }
 ```
+### Using the AWS CodeBuild plugin with the Jenkins Pipeline plugin
+
+Use the snippet generator (click "Pipeline Syntax" on your pipeline project page) to generate the pipeline script that adds CodeBuild as a step in your pipeline. It should generate something like
+
+```
+awsCodeBuild projectName: 'project', credentialsType: 'keys', region: 'us-west-2', sourceControlType: 'jenkins'
+```
+
+Additionally, this returns a result object which exposes the following methods which can be useful to later steps:
+
+* `getBuildId()`: returns the build ID of the build (similar to `codebuild-project-name:12346789-ffff-0000-aaaa-bbbbccccdddd`)
+* `getArn()`: returns the ARN of the build (similar to `arn:aws:codebuild:AWS_REGION:AWS_ACCOUNT_ID:build/CODEBUILD_BUILD_ID`, where `CODEBUILD_BUILD_ID` is the same information returned in getBuildId)
+* `getArtifactsLocation()`: returns the S3 ARN of the artifacts location (similar to `arn:aws:s3:::s3-bucket-name/path/to/my/artifacts`)
+
+### AWS Credentials in Jenkins
+
+It's recommended to use the Jenkins credentials store for your AWS credentials. Your Jenkins credentials must be of type `CodeBuild Credentials` to be compatible with the CodeBuild plugin. When creating new `CodeBuild Credentials`, the plugin will attempt to use the [default credentials provider chain](https://docs.aws.amazon.com/AWSJavaSDK/latest/javadoc/com/amazonaws/auth/DefaultAWSCredentialsProviderChain.html) if AWS access and secret keys are not defined.
+
+You can also specify your AWS access and secret keys in the CodeBuild configuration when using `credentialsType: 'keys'`. If the access and secret keys are not specified, the plugin will attempt to use the default credentials provider chain. When running a Jenkins pipeline build, the plugin will attempt to use credentials from the [pipeline-aws](https://plugins.jenkins.io/pipeline-aws) plugin before falling back to the default credentials provider chain. If you are running Jenkins on an EC2 instance, leave the access and secret key fields blank and specify `credentialsType: 'keys'`to use credentials from your EC2 instance profile, which is in the default credentials provider chain. 
 

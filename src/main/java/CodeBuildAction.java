@@ -14,20 +14,25 @@
  *  Please see LICENSE.txt for applicable license terms and NOTICE.txt for applicable notices.
  */
 
-import com.amazonaws.services.codebuild.model.*;
-import hudson.model.AbstractBuild;
+import com.amazonaws.services.codebuild.model.BuildPhase;
+import com.amazonaws.services.codebuild.model.StatusType;
 import hudson.model.Action;
-import java.util.*;
-import lombok.*;
+import hudson.model.Run;
+import lombok.Data;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 @Data
 public class CodeBuildAction implements Action {
 
-    private final AbstractBuild<?, ?> build;
-    private static final String URL = "codebuild"; //the display URL in jenkins for this page.
+    private final Run<?, ?> build;
 
+    private String buildId;
     private List<String> logs;
-    private String logURL;
+    private String cloudWatchLogsURL;
+    private String s3LogsURL;
     private List<BuildPhase> phases;
     private String phaseErrorMessage;
     private String startTime;
@@ -36,9 +41,18 @@ public class CodeBuildAction implements Action {
 
     private String environmentARN;
     private String buildARN;
+    private String sourceType;
+    private String sourceLocation;
+    private String sourceVersion;
+    private String gitCloneDepth;
+    private String reportBuildStatus;
     private String s3BucketName;
     private String s3ArtifactURL;
+    private String artifactTypeOverride;
+    private String codeBuildDashboardURL;
     private Boolean jenkinsBuildSucceeds;
+
+    private static final int MAX_DASHBOARD_NAME_LENGTH = 15;
 
 
     @Override
@@ -48,14 +62,14 @@ public class CodeBuildAction implements Action {
 
     @Override
     public String getDisplayName() {
-        return "CodeBuild Dashboard";
+        return "CodeBuild: " + Utils.formatStringWithEllipsis(getBuildId(), MAX_DASHBOARD_NAME_LENGTH);
     }
 
     @Override
     public String getUrlName() {
-        return URL;
+        String id = getBuildId();
+        return id.substring(id.indexOf(":")+1, id.length());
     }
-
 
     // Sets the state of the latest phase to be in_progress (unless the latest phase is completed, in which
     // case the state is set to succeeded).
@@ -111,9 +125,8 @@ public class CodeBuildAction implements Action {
             return "";
         } else {
             if (!errorPhase.getContexts().isEmpty()) {
-                String ret = errorPhase.getContexts().get(0).getMessage().replace("'", "").replace("\n", "") + " (status code: " +
+                return errorPhase.getContexts().get(0).getMessage().replace("'", "").replace("\n", "") + " (status code: " +
                         errorPhase.getContexts().get(0).getStatusCode() + ")";
-                return ret;
             } else {
                 return "";
             }
@@ -151,5 +164,22 @@ public class CodeBuildAction implements Action {
             return "IN PROGRESS"; //instead of in_progress
         }
         return currentStatus;
+    }
+
+    public void updateLogs(List<String> newLogs) {
+        if(logs != null) {
+            if(logs.size() == 1) {
+                if(logs.get(0).equals(CloudWatchMonitor.noLogsMessage)) {
+                    if (newLogs.size() > 0 && !newLogs.get(0).equals(CloudWatchMonitor.noLogsMessage)) {
+                        logs = new ArrayList();
+                    } else {
+                        return;
+                    }
+                } else if(logs.get(0).equals(CloudWatchMonitor.streamingDisabledMessage)) {
+                    return;
+                }
+            }
+            this.logs.addAll(newLogs);
+        }
     }
 }

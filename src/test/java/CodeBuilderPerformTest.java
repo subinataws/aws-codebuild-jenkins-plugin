@@ -15,114 +15,333 @@
  */
 
 import com.amazonaws.services.codebuild.model.*;
-import hudson.Launcher;
-import hudson.model.AbstractBuild;
-import hudson.model.BuildListener;
+import enums.*;
+import hudson.model.ParameterValue;
+import hudson.model.Result;
+import hudson.util.Secret;
+import lombok.Getter;
+import lombok.Setter;
+import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-
-import static org.junit.Assert.assertFalse;
-import static org.mockito.AdditionalMatchers.not;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.*;
 
+@PowerMockIgnore("javax.management.*")
+@RunWith(PowerMockRunner.class)
+@PrepareForTest({CodeBuilder.class, Secret.class})
 public class CodeBuilderPerformTest extends CodeBuilderTest {
 
-    @Test
-    public void testGetCBClientExcepts() throws Exception {
+    @Before
+    public void SetUp() throws Exception {
         setUpBuildEnvironment();
-        CodeBuilder test = createDefaultCodeBuilder();
-        String error = "failed to instantiate cb client.";
-        doThrow(new InvalidInputException(error)).when(mockFactory).getCodeBuildClient();
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        boolean result = test.perform(build, launcher, listener);
-        assertFalse(result);
-        assert(log.toString().contains(error));
+    }
+
+    @Test
+    public void testConfigAllNull() throws Exception {
+        CodeBuilder test = new CodeBuilder(null, null, null, null, null, null,
+                null, null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null,
+                null, null, null, null, null,
+                null, null, null, null, null);
+
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(CodeBuilder.configuredImproperlyError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(CodeBuilder.configuredImproperlyError));
+    }
+
+    @Test
+    public void testConfigAllBlank() throws Exception {
+        CodeBuilder test = new CodeBuilder("", "", "", "", "",
+                null, "", "", "", "", "", "", "",
+                "", "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "");
+
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(CodeBuilder.configuredImproperlyError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(CodeBuilder.configuredImproperlyError));
+    }
+
+    @Test
+    public void testNoProjectName() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "", "", "", "",
+                null, "", CodeBuildRegions.IAD.toString(), "", "", "",
+                SourceControlType.ProjectSource.toString(), "", "", "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "");
+
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        verify(listener, times(1)).getLogger();
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(CodeBuilder.configuredImproperlyError), true);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.projectRequiredError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(CodeBuilder.configuredImproperlyError));
+        assertTrue(result.getErrorMessage().contains(Validation.projectRequiredError));
+    }
+
+    @Test
+    public void testNoSourceType() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "", "", "", "",
+                null, "", CodeBuildRegions.IAD.toString(), "project", "", "", "",
+                "", "", "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "",
+                "", "", "", "", "");
+
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        verify(listener, times(1)).getLogger();
+
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(CodeBuilder.configuredImproperlyError), true);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.sourceControlTypeRequiredError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(CodeBuilder.configuredImproperlyError));
+        assertTrue(result.getErrorMessage().contains(Validation.sourceControlTypeRequiredError));
     }
 
     @Test
     public void testStartBuildExcepts() throws Exception {
-        setUpBuildEnvironment();
         CodeBuilder test = createDefaultCodeBuilder();
-        String error = "submit build exception.";
+        String error = "StartBuild exception";
         doThrow(new InvalidInputException(error)).when(mockClient).startBuild(any(StartBuildRequest.class));
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        boolean result = test.perform(build, launcher, listener);
-        assertFalse(result);
-        String s = log.toString();
-        assert(log.toString().contains(error));
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(error), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(error));
     }
 
     @Test
-    public void testGetBuildExcepts() throws Exception {
-        setUpBuildEnvironment();
+    public void testGetCBClientExcepts() throws Exception {
+        CodeBuilder test = createDefaultCodeBuilder();
+        String error = "failed to instantiate cb client.";
+        doThrow(new InvalidInputException(error)).when(mockFactory).getCodeBuildClient();
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(error), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(error));
+    }
+
+    @Test
+    public void testBatchGetBuildsExcepts() throws Exception {
+        CodeBuilder test = createDefaultCodeBuilder();
         String error = "cannot get build";
         doThrow(new InvalidInputException(error)).when(mockClient).batchGetBuilds(any(BatchGetBuildsRequest.class));
-        CodeBuilder test = createDefaultCodeBuilder();
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        boolean result = test.perform(build, launcher, listener);
-        assertFalse(result);
-        assert(log.toString().contains(error));
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
 
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(error), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(error));
     }
 
     @Test
-    public void testActionConfig() throws Exception {
-        setUpBuildEnvironment();
-        Date startTime = new Date(0);
-        String arn = "arn123:456";
-        String logURL = "url1";
+    public void testComputeTypeOverrideException() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "id123", "host", "60", "a", awsSecretKey,
+                "", CodeBuildRegions.IAD.toString(), "existingProject", "sourceVersion", "",
+                SourceControlType.ProjectSource.toString(), "", "", GitCloneDepth.One.toString(), BooleanValue.False.toString(), ArtifactsType.NO_ARTIFACTS.toString(), "", "",
+                "", "", "", BooleanValue.False.toString(), BooleanValue.False.toString(),
+                "[{k, v}]", "[{k, p}]", "buildspec.yml", "5", SourceType.GITHUB_ENTERPRISE.toString(), "https://1.0.0.0.86/my_repo",
+                EnvironmentType.LINUX_CONTAINER.toString(), "aws/codebuild/openjdk-8", "invalidComputeType", CacheType.NO_CACHE.toString(), "",
+                LogsConfigStatusType.ENABLED.toString(), "group", "stream", LogsConfigStatusType.ENABLED.toString(), "location",
+                "arn:aws:s3:::my_bucket/certificate.pem", "my_service_role", BooleanValue.False.toString(), BooleanValue.False.toString(), BooleanValue.False.toString());
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
 
-        List<String> logs = Arrays.asList("logs");
-        when(mockMonitor.getLatestLogs()).thenReturn(logs);
-        when(mockBuild.getPhases()).thenReturn(new ArrayList<BuildPhase>());
-        when(mockBuild.getStartTime()).thenReturn(startTime);
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.invalidComputeTypeError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(Validation.invalidComputeTypeError));
+    }
 
-        LogsLocation mockLogsLocation = new LogsLocation().withDeepLink(logURL);
-        when(mockMonitor.getLogsLocation()).thenReturn(mockLogsLocation);
-        when(mockBuild.getArn()).thenReturn(arn);
+    @Test
+    public void testCacheTypeOverrideException() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "id123", "host", "60", "a", awsSecretKey,
+                "", CodeBuildRegions.IAD.toString(), "existingProject", "sourceVersion", "",
+                SourceControlType.ProjectSource.toString(), "", "", GitCloneDepth.One.toString(), BooleanValue.False.toString(), ArtifactsType.NO_ARTIFACTS.toString(), "", "",
+                "", "", "", BooleanValue.False.toString(), BooleanValue.False.toString(),
+                "[{k, v}]", "[{k, p}]", "buildspec.yml", "5", SourceType.GITHUB_ENTERPRISE.toString(), "https://1.0.0.0.86/my_repo",
+                EnvironmentType.LINUX_CONTAINER.toString(), "aws/codebuild/openjdk-8", ComputeType.BUILD_GENERAL1_SMALL.toString(), "invalidCacheType", "",
+                LogsConfigStatusType.ENABLED.toString(), "group", "stream", LogsConfigStatusType.ENABLED.toString(), "location",
+                "arn:aws:s3:::my_bucket/certificate.pem", "my_service_role", BooleanValue.False.toString(), BooleanValue.False.toString(), BooleanValue.False.toString());
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
 
-        CodeBuildAction a = mock(CodeBuildAction.class);
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.invalidCacheTypeError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(Validation.invalidCacheTypeError));
+    }
 
-        ArgumentCaptor<List<String>> savedLogs = ArgumentCaptor.forClass(List.class);
-        ArgumentCaptor<List<BuildPhase>> savedPhases = ArgumentCaptor.forClass(List.class);
-        ArgumentCaptor<String> savedBuildArn = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> savedStartTime = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> savedLogURL = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> savedArtifactURL = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> savedBucketName = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Boolean> savedJStatus = ArgumentCaptor.forClass(Boolean.class);
+    @Test
+    public void testCloudWatchLogsStatusOverrideException() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "id123", "host", "60", "a", awsSecretKey,
+                "", CodeBuildRegions.IAD.toString(), "existingProject", "sourceVersion", "",
+                SourceControlType.ProjectSource.toString(), "", "", GitCloneDepth.One.toString(), BooleanValue.False.toString(), ArtifactsType.NO_ARTIFACTS.toString(), "", "",
+                "", "", "", BooleanValue.False.toString(), BooleanValue.False.toString(),
+                "[{k, v}]", "[{k, p}]", "buildspec.yml", "5", SourceType.GITHUB_ENTERPRISE.toString(), "https://1.0.0.0.86/my_repo",
+                EnvironmentType.LINUX_CONTAINER.toString(), "aws/codebuild/openjdk-8", ComputeType.BUILD_GENERAL1_SMALL.toString(), CacheType.NO_CACHE.toString(), "",
+                "invalidCloudWatchLogsStatus", "group", "stream", LogsConfigStatusType.ENABLED.toString(), "location",
+                "arn:aws:s3:::my_bucket/certificate.pem", "my_service_role", BooleanValue.False.toString(), BooleanValue.False.toString(), BooleanValue.False.toString());
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
 
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.invalidCloudWatchLogsStatusError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(Validation.invalidCloudWatchLogsStatusError));
+    }
 
-        CodeBuilder test = createDefaultCodeBuilder();
-        fixCodeBuilderFactories(test, mockFactory, mockDataManager, mockProjectFactory);
-        test.setAction(a);
-        test.setLogMonitor(mockMonitor);
-        test.perform(build, launcher, listener);
+    @Test
+    public void testS3LogsStatusOverrideException() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "id123", "host", "60", "a", awsSecretKey,
+                "", CodeBuildRegions.IAD.toString(), "existingProject", "sourceVersion", "",
+                SourceControlType.ProjectSource.toString(), "", "", GitCloneDepth.One.toString(), BooleanValue.False.toString(), ArtifactsType.NO_ARTIFACTS.toString(), "", "",
+                "", "", "", BooleanValue.False.toString(), BooleanValue.False.toString(),
+                "[{k, v}]", "[{k, p}]", "buildspec.yml", "5", SourceType.GITHUB_ENTERPRISE.toString(), "https://1.0.0.0.86/my_repo",
+                EnvironmentType.LINUX_CONTAINER.toString(), "aws/codebuild/openjdk-8", ComputeType.BUILD_GENERAL1_SMALL.toString(), CacheType.NO_CACHE.toString(), "",
+                LogsConfigStatusType.ENABLED.toString(), "group", "stream", "invalidS3LogsStatus", "location",
+                "arn:aws:s3:::my_bucket/certificate.pem", "my_service_role", BooleanValue.False.toString(), BooleanValue.False.toString(), BooleanValue.False.toString());
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
 
-        verify(a, times(2)).setLogs(savedLogs.capture());
-        verify(a, times(2)).setPhases(savedPhases.capture());
-        verify(a).setBuildARN(savedBuildArn.capture());
-        verify(a).setStartTime(savedStartTime.capture());
-        verify(a, times(2)).setLogURL(savedLogURL.capture());
-        verify(a).setS3ArtifactURL(savedArtifactURL.capture());
-        verify(a).setS3BucketName(savedBucketName.capture());
-        verify(a).setJenkinsBuildSucceeds(savedJStatus.capture());
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.invalidS3LogsStatusError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(Validation.invalidS3LogsStatusError));
+    }
 
-        assert(savedLogs.getValue().size() == 1);
-        assert(savedLogs.getValue().get(0).equals(logs.get(0)));
-        assert(savedPhases.getValue().equals(new ArrayList<BuildPhase>()));
-        assert(savedStartTime.getValue().equals(startTime.toString()));
-        assert(savedBuildArn.getValue().equals(arn));
-        assert(savedLogURL.getValue().equals(logURL));
-        assert(savedArtifactURL.getValue().equals("https://console.aws.amazon.com/s3/home?region=us-east-1#&bucket=artifactBucket"));
-        assert(savedBucketName.getValue().equals("artifactBucket"));
-        assert(savedJStatus.getValue().equals(true));
+    @Test
+    public void testSourceTypeOverrideException() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "id123", "host", "60", "a", awsSecretKey,
+                "", CodeBuildRegions.IAD.toString(), "existingProject", "sourceVersion", "",
+                SourceControlType.ProjectSource.toString(), "", "", GitCloneDepth.One.toString(), BooleanValue.False.toString(), ArtifactsType.NO_ARTIFACTS.toString(), "", "",
+                "", "", "", BooleanValue.False.toString(), BooleanValue.False.toString(),
+                "[{k, v}]", "[{k, p}]", "buildspec.yml", "5", "invalidSourceType", "https://1.0.0.0.86/my_repo",
+                EnvironmentType.LINUX_CONTAINER.toString(), "aws/codebuild/openjdk-8", ComputeType.BUILD_GENERAL1_SMALL.toString(), CacheType.NO_CACHE.toString(), "",
+                LogsConfigStatusType.ENABLED.toString(), "group", "stream", LogsConfigStatusType.ENABLED.toString(), "location",
+                "arn:aws:s3:::my_bucket/certificate.pem", "my_service_role", BooleanValue.False.toString(), BooleanValue.False.toString(), BooleanValue.False.toString());
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.invalidSourceTypeError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(Validation.invalidSourceTypeError));
+    }
+
+    @Test
+    public void testEnvironmentTypeOverrideException() throws Exception {
+        CodeBuilder test = new CodeBuilder("keys", "id123", "host", "60", "a", awsSecretKey,
+                "", CodeBuildRegions.IAD.toString(), "existingProject", "sourceVersion", "",
+                SourceControlType.ProjectSource.toString(), "", "", GitCloneDepth.One.toString(), BooleanValue.False.toString(), ArtifactsType.NO_ARTIFACTS.toString(), "", "",
+                "", "", "", BooleanValue.False.toString(), BooleanValue.False.toString(),
+                "[{k, v}]", "[{k, p}]", "buildspec.yml", "5", SourceType.GITHUB_ENTERPRISE.toString(), "https://1.0.0.0.86/my_repo",
+                "invalidEnvironmentType", "aws/codebuild/openjdk-8", ComputeType.BUILD_GENERAL1_SMALL.toString(), CacheType.NO_CACHE.toString(), "",
+                LogsConfigStatusType.ENABLED.toString(), "group", "stream", LogsConfigStatusType.ENABLED.toString(), "location",
+                "arn:aws:s3:::my_bucket/certificate.pem", "my_service_role", BooleanValue.False.toString(), BooleanValue.False.toString(), BooleanValue.False.toString());
+        ArgumentCaptor<Result> savedResult = ArgumentCaptor.forClass(Result.class);
+        test.perform(build, ws, launcher, listener, mockStepContext);
+
+        verify(build).setResult(savedResult.capture());
+        assertEquals(savedResult.getValue(), Result.FAILURE);
+        assertEquals("Invalid log contents: " + log.toString(), log.toString().contains(Validation.invalidEnvironmentTypeError), true);
+        CodeBuildResult result = test.getCodeBuildResult();
+        assertEquals(CodeBuildResult.FAILURE, result.getStatus());
+        assertTrue(result.getErrorMessage().contains(Validation.invalidEnvironmentTypeError));
+    }
+
+    @Test
+    public void testBuildParameters() throws Exception {
+        envVars.put("foo", "bar");
+        envVars.put("foo2", "bar2");
+        envVars.put("foo3", "bar3");
+
+        CodeBuilder cb = new CodeBuilder("keys", "id123", "host", "60", "a",
+                awsSecretKey, "", "us-east-1", "$foo", "$foo2-$foo3", "",
+                SourceControlType.ProjectSource.toString(), "", "", GitCloneDepth.One.toString(), BooleanValue.False.toString(), ArtifactsType.NO_ARTIFACTS.toString(), "", "",
+                "", "", "", BooleanValue.False.toString(), BooleanValue.False.toString(),
+                "[{k, v}]", "", "buildspec.yml", "5", SourceType.GITHUB_ENTERPRISE.toString(), "https://1.0.0.0.86/my_repo",
+                EnvironmentType.LINUX_CONTAINER.toString(), "aws/codebuild/openjdk-8", ComputeType.BUILD_GENERAL1_SMALL.toString(), CacheType.NO_CACHE.toString(), "",
+                LogsConfigStatusType.ENABLED.toString(), "group", "stream", LogsConfigStatusType.ENABLED.toString(), "location",
+                "arn:aws:s3:::my_bucket/certificate.pem", "my_service_role", BooleanValue.False.toString(), BooleanValue.False.toString(), BooleanValue.False.toString());
+
+        cb.perform(build, ws, launcher, listener, mockStepContext);
+
+        assertEquals(envVars.get("foo"), cb.getParameterized(cb.getProjectName()));
+        assertEquals(envVars.get("foo2") + "-" + envVars.get("foo3"), cb.getParameterized(cb.getSourceVersion()));
+    }
+
+    private class Parameter extends ParameterValue {
+        @Getter @Setter String value;
+
+        protected Parameter(String name, String description) {
+            super(name, description);
+        }
     }
 }

@@ -24,7 +24,6 @@
     <groupId>com.amazonaws</groupId>
     <artifactId>aws-codebuild</artifactId>
     <version>1.1</version>
-    <java.level>11</java.level>
     <packaging>hpi</packaging>
     <name>AWS CodeBuild Plugin</name>
     <description>Adds a build step to integrate Jenkins with AWS CodeBuild.</description>
@@ -131,6 +130,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.3</version>
+                <properties>
+                  <java.level>11</java.level>
+                </properties>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
